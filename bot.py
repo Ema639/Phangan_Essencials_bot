@@ -96,7 +96,7 @@ dp = Dispatcher()
 user_data = {}
 # {519275422: {'start_date': datetime.date(2024, 8, 15), 'end_date': datetime.date(2024, 8, 18), 'bike_name': 'Honda PCX 1'}}
 
-ADMIN_GROUP_ID = -4229532666
+ADMIN_GROUP_ID = -4582383727
 
 REVIEWS_GROUP_ID = -4268299607
 
