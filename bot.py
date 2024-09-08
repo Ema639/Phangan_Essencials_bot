@@ -1034,7 +1034,7 @@ async def contacts(callback_query: types.CallbackQuery):
 
 
 async def main():
-    # await bot.delete_webhook(drop_pending_updates=True)
+    await bot.delete_webhook(drop_pending_updates=True)
     await shedul()
     await dp.start_polling(bot, skip_updates=True)
 
