@@ -30,68 +30,6 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Initialize scheduler
-# scheduler = AsyncIOScheduler()
-# scheduler.start()
-
-# Словари байков для каждой модели
-# honda_pcx_bikes = [
-#     {"name": "Honda PCX 1", "description": "Описание Honda PCX 1", "photo": "Honda PCX 1.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 2", "description": "Описание Honda PCX 2", "photo": "Honda PCX 2.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 3", "description": "Описание Honda PCX 3", "photo": "Honda PCX 3.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 4", "description": "Описание Honda PCX 4", "photo": "Honda PCX 4.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 5", "description": "Описание Honda PCX 5", "photo": "Honda PCX 5.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 6", "description": "Описание Honda PCX 6", "photo": "Honda PCX 6.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 7", "description": "Описание Honda PCX 7", "photo": "Honda PCX 7.jpg", "booked_dates": {}},
-#     {"name": "Honda PCX 8", "description": "Описание Honda PCX 8", "photo": "Honda PCX 8.jpg", "booked_dates": {}}
-# ]
-#
-# honda_click_bikes = [
-#     {"name": "Honda Click 1", "description": "Описание Honda Click 1", "photo": "Honda Click 1.jpg",
-#      "booked_dates": {}},
-#     {"name": "Honda Click 2", "description": "Описание Honda Click 2", "photo": "Honda Click 2.jpg",
-#      "booked_dates": {}},
-#     {"name": "Honda Click 3", "description": "Описание Honda Click 3", "photo": "Honda Click 3.jpg",
-#      "booked_dates": {}},
-#     {"name": "Honda Click 4", "description": "Описание Honda Click 4", "photo": "Honda Click 4.jpg",
-#      "booked_dates": {}},
-#     # {"name": "Honda Click 5", "description": "Описание Honda Click 5", "photo": "click2.jpeg", "booked_dates": {}},
-#     # {"name": "Honda Click 6", "description": "Описание Honda Click 6", "photo": "click2.jpeg", "booked_dates": {}},
-#     # {"name": "Honda Click 7", "description": "Описание Honda Click 7", "photo": "click2.jpeg", "booked_dates": {}},
-# ]
-#
-# honda_adv_bikes = [
-#     {"name": "Honda ADV 1", "description": "Описание Honda ADV 1", "photo": "Honda ADV 1.jpg", "booked_dates": {}}
-# ]
-#
-# honda_forza_bikes = [
-#     {"name": "Honda Forza 1", "description": "Описание Honda Forza 1", "photo": "Honda Forza 1.jpg",
-#      "booked_dates": {}},
-#     {"name": "Honda Forza 2", "description": "Описание Honda Forza 2", "photo": "Honda Forza 2.jpg",
-#      "booked_dates": {}},
-# ]
-#
-# yamaha_xmax_bikes = [
-#     {"name": "Yamaha Xmax 1", "description": "Описание Yamaha Xmax 1", "photo": "Yamaha Xmax 1.jpg", "booked_dates": {}}
-# ]
-#
-# honda_scoopy_bikes = [
-#     {"name": "Honda Scoopy 1", "description": "Описание Honda Scoopy 1", "photo": "Scoopy 1.jpg", "booked_dates": {}},
-#     {"name": "Honda Scoopy 2", "description": "Описание Honda Scoopy 2", "photo": "Scoopy 2.jpg", "booked_dates": {}},
-#     {"name": "Honda Scoopy 3", "description": "Описание Honda Scoopy 3", "photo": "Scoopy 3.jpg", "booked_dates": {}},
-#     {"name": "Honda Scoopy 4", "description": "Описание Honda Scoopy 4", "photo": "Scoopy 4.jpg", "booked_dates": {}},
-# ]
-#
-# honda_zoomer_bikes = [
-#     {"name": "Honda Zoomer 1", "description": "Описание Honda Zoomer 1", "photo": "Zoomer 1.jpg", "booked_dates": {}},
-#     {"name": "Honda Zoomer 2", "description": "Описание Honda Zoomer 2", "photo": "Zoomer 2.jpg", "booked_dates": {}},
-# ]
-#
-# yamaha_fino_bikes = [
-#     {"name": "Yamaha Fino", "description": "Описание Yamaha Fino", "photo": "Yamaha Fino.jpg", "booked_dates": {}},
-#     {"name": "Yamaha Grand Filano", "description": "Описание Yamaha Grand Filano", "photo": "Yamaha Grand Filano.jpg",
-#      "booked_dates": {}},
-# ]
 
 user_data = {}
 # {519275422: {'start_date': datetime.date(2024, 8, 15), 'end_date': datetime.date(2024, 8, 18), 'bike_name': 'Honda PCX 1'}}
@@ -1035,7 +973,7 @@ async def contacts(callback_query: types.CallbackQuery):
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    await shedul()
+    # await shedul()
     await dp.start_polling(bot, skip_updates=True)
 
 
