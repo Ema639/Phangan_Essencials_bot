@@ -17,9 +17,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import TOKEN
 import asyncpg
 import psycopg2
-from functools import lru_cache
-import connectorx as cx
-from asyncpg.pool import Pool
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
