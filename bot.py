@@ -3,32 +3,138 @@ import asyncio
 from aiogram.filters import Command
 from aiogram import F
 import logging
-import random
 import os
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton, ReplyKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import FSInputFile
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InputMediaPhoto
-from aiogram_calendar import SimpleCalendar
-from aiogram_dialog.widgets.kbd import Calendar
-import aiofiles
 from datetime import datetime, timedelta, date, time
 import calendar
 from aiogram.filters.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.schedulers.background import BackgroundScheduler
 import pandas as pd
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-import importlib
 from config import TOKEN
-
+import asyncpg
+import psycopg2
+from functools import lru_cache
+import connectorx as cx
+from asyncpg.pool import Pool
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+# Данные для подключения к базе данных
+DATABASE_URL = "postgresql://postgres:YZFaxXjLdSFHFfZTvSdlQOMweozxAyrs@junction.proxy.rlwy.net:39641/railway"  # URL подключения к базе данных из Railway
+
+
+# Функция для подключения к базе данных
+def get_db_connection():
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        return conn
+    except Exception as e:
+        logging.error(f"Ошибка подключения к базе данных: {e}")
+        raise
+
+
+# Функция для загрузки данных о бронированиях из таблицы "bookings"
+def load_booking_data():
+    conn = get_db_connection()
+    try:
+        query = "SELECT bike_name, user_id, start_date, end_date FROM booking"
+        cursor = conn.cursor()
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        booking_data = {}
+
+        for row in rows:
+            bike_name = row[0]
+            user_id = row[1]
+            start_date = row[2]
+            end_date = row[3]
+
+            if bike_name not in booking_data:
+                booking_data[bike_name] = {}
+
+            if user_id not in booking_data[bike_name]:
+                booking_data[bike_name][user_id] = []
+
+            booking_data[bike_name][user_id].append((start_date, end_date))
+
+        return booking_data
+    finally:
+        conn.close()
+
+
+# @lru_cache(maxsize=128)
+# def get_data():
+#     query = "SELECT name, description, photo, model FROM bikes"
+#     """Получает данные из базы данных и кэширует результаты."""
+#     # Выполняем запрос и возвращаем результаты в виде DataFrame
+#     return pd.DataFrame(cx.read_sql(conn=DATABASE_URL, query=query, return_type="pandas"))
+
+
+# Функция для загрузки данных о байках из таблицы "bikes"
+def load_bike_data():
+    conn = get_db_connection()
+    booking_data = load_booking_data()
+
+    try:
+        cursor = conn.cursor()
+        query = "SELECT name, description, photo, model FROM bikess"
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        honda_pcx_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'pcx'
+        ]
+
+        honda_click_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'click'
+        ]
+
+        print(honda_pcx_bikes, "XXXXXXXX")
+        return honda_pcx_bikes, honda_click_bikes
+    finally:
+        conn.close()
+
+
+honda_pcx_bikes, honda_click_bikes = load_bike_data()
+
+
+# Функция для сохранения данных о бронировании в таблицу "bookings"
+def save_booking_data(user_id, bike_name, start_date, end_date, username):
+    conn = get_db_connection()
+    cursor = None
+    try:
+        cursor = conn.cursor()  # Создание курсора для выполнения SQL-запросов
+        query = """
+            INSERT INTO booking (user_id, bike_name, start_date, end_date, username)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (user_id, bike_name, start_date, end_date, username))  # Выполнение запроса через курсор
+        conn.commit()  # Сохранение изменений в базе данных
+        print("Бронирование успешно сохранено в базу данных.")
+    except Exception as e:
+        print(f"Ошибка при сохранении данных: {e}")
+    finally:
+        if cursor:
+            cursor.close()  # Закрытие курсора, если он был создан
+        conn.close()  # Закрытие соединения
 
 
 user_data = {}
@@ -62,157 +168,6 @@ def is_user_blacklisted(user_id):
     return user_id in blacklist
 
 
-def load_booking_data():
-    try:
-        # Загружаем данные с листа 'bookings'
-        df = pd.read_excel("bikes.xlsx", sheet_name="bookings")
-        booking_data = {}
-
-        for _, row in df.iterrows():
-            bike_name = row['bike_name']
-            user_id = row['user_id']  # Предполагается, что у вас есть поле user_id
-            start_date = pd.to_datetime(row['start_date'], dayfirst=True).date()
-            end_date = pd.to_datetime(row['end_date'], dayfirst=True).date()
-
-            if bike_name not in booking_data:
-                booking_data[bike_name] = {}
-
-            if user_id not in booking_data[bike_name]:
-                booking_data[bike_name][user_id] = []
-
-            booking_data[bike_name][user_id].append((start_date, end_date))
-
-        return booking_data
-
-    except FileNotFoundError:
-        return {}
-    except ValueError:
-        return {}
-
-
-# Function to load bike data from Excel
-def load_bike_data():
-    df = pd.read_excel("bikes.xlsx", sheet_name="bikes")
-    booking_data = load_booking_data()
-
-    honda_pcx_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Honda PCX'
-    ]
-
-    honda_click_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Honda Click'
-    ]
-
-    honda_adv_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Honda ADV'
-    ]
-
-    honda_forza_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Honda Forza'
-    ]
-
-    yamaha_xmax_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Yamaha Xmax'
-    ]
-
-    honda_scoopy_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Honda Scoopy'
-    ]
-
-    honda_zoomer_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Honda Zoomer'
-    ]
-
-    yamaha_fino_bikes = [
-        {
-            "name": row['name'],
-            "description": row['description'],
-            "photo": row['photo'],
-            "booked_dates": booking_data.get(row['name'], {})
-        }
-        for _, row in df.iterrows() if row['model'] == 'Yamaha Fino'
-    ]
-
-    return honda_pcx_bikes, honda_click_bikes, honda_adv_bikes, honda_forza_bikes, yamaha_xmax_bikes, honda_scoopy_bikes, honda_zoomer_bikes, yamaha_fino_bikes
-
-
-honda_pcx_bikes, honda_click_bikes, honda_adv_bikes, honda_forza_bikes, yamaha_xmax_bikes, honda_scoopy_bikes, honda_zoomer_bikes, yamaha_fino_bikes = load_bike_data()
-print('BIKE', honda_pcx_bikes)
-
-
-# Save booking data to Excel
-def save_booking_data(user_id, bike_name, start_date, end_date, username):
-    try:
-        # Чтение существующих данных с листа 'bookings'
-        existing_data = pd.read_excel("bikes.xlsx", sheet_name="bookings")
-    except FileNotFoundError:
-        # Если файла не существует, создаем новый DataFrame
-        existing_data = pd.DataFrame()
-    except ValueError:
-        # Если листа 'bookings' не существует, создаем новый DataFrame
-        existing_data = pd.DataFrame()
-
-        # Преобразование новых данных в DataFrame
-    new_df = pd.DataFrame({
-        'user_id': [user_id],
-        'bike_name': [bike_name],
-        'start_date': [start_date.strftime('%d-%m-%Y')],
-        'end_date': [end_date.strftime('%d-%m-%Y')],
-        'username': [username]
-    })
-
-    # Объединение существующих данных с новыми
-    print("new_df", new_df)
-    combined_data = pd.concat([existing_data, new_df], ignore_index=True)
-    print("DF", combined_data)
-
-    # Запись объединенных данных обратно на лист 'bookings'
-    with pd.ExcelWriter("bikes.xlsx", mode="a", if_sheet_exists="replace") as writer:
-        combined_data.to_excel(writer, sheet_name="bookings", index=False)
-
-
 async def send_notification(user_id, end_date_, username):
     # await bot.send_message(user_id, 'ШЕДУЛЕР РАБОТАЕТ')
     user_link = f"https://t.me/{username}"
@@ -239,7 +194,7 @@ async def shedul():
 
     sched = AsyncIOScheduler()
     # Загружаем данные с листа 'bookings'
-    df = pd.read_excel("bikes.xlsx", sheet_name="bookings")
+    df = pd.read_excel("bikes.xlsx", sheet_name="booking")
     # print("SHEDUL_USER_DATA", user_data)
     for index, row in df.iterrows():
         end_date_ = row['end_date']
@@ -261,18 +216,36 @@ async def shedul():
     sched.start()
 
 
+def get_user_ids_from_db():
+    # Подключаемся к базе данных
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        # Создаем курсор для выполнения запроса
+        cursor = conn.cursor()
+        # Выполняем запрос к базе данных, чтобы получить уникальные user_id из таблицы "bookings"
+        cursor.execute("SELECT DISTINCT user_id FROM booking")
+        rows = cursor.fetchall()
+        # Извлекаем user_id из результатов
+        user_ids = {row[0] for row in rows}
+        return user_ids
+    finally:
+        conn.close()
+
+
 # Стартовая клавиатура
 def start_keyboard(user_id):
-    # Загружаем данные с листа 'bookings'
-    df = pd.read_excel("bikes.xlsx", sheet_name="bookings")
+    # Получаем уникальные user_id из базы данных
+    user_ids = get_user_ids_from_db()
     markup = InlineKeyboardBuilder()
     markup.add(InlineKeyboardButton(text="🛵 Байки", callback_data="байки"))
     markup.add(InlineKeyboardButton(text="🛡 Условия аренды", callback_data="условия"))
     markup.add(InlineKeyboardButton(text="📞 Контакты", callback_data="контакты"))
     markup.add(InlineKeyboardButton(text="🏆 Отзывы о нас", callback_data="отзывы"))
-    if user_id in list(df.user_id.unique()):
+    # Проверяем, есть ли user_id среди бронирований
+    if user_id in user_ids:
         markup.add(InlineKeyboardButton(text="📋 Мои бронирования", callback_data="📋 Мои бронирования"))
     return markup.adjust(1).as_markup()
+
 
 def bikes_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -329,7 +302,6 @@ async def feedback(callback_query: types.CallbackQuery):
 # Кнопка "✍️ Оставить отзыв"
 @dp.callback_query(F.data == 'оставить_отзыв')
 async def feedback(callback_query: types.CallbackQuery, state: FSMContext):
-    photo = FSInputFile("Phangan.jpeg")
     await callback_query.message.answer("Пожалуйста, напишите свой отзыв:")
     await state.set_state(FeedbackStates.writing_feedback)
     await callback_query.answer()
@@ -425,53 +397,117 @@ class BookingInformationCallBack(CallbackData, prefix="booking_information"):
     page: int
 
 
-# Фунция получения байка по модели и странице
-def get_bike(model: str, page: int):
+# Функция для получения байка по модели и странице
+async def get_bike(model: str, page: int):
+    # bike_data = load_bike_data()  # Загружаем байки один раз
     bike_collections = {
         "pcx": honda_pcx_bikes,
-        "click": honda_click_bikes,
-        "adv": honda_adv_bikes,
-        "forza": honda_forza_bikes,
-        "xmax": yamaha_xmax_bikes,
-        "scoopy": honda_scoopy_bikes,
-        "zoomer": honda_zoomer_bikes,
-        "fino": yamaha_fino_bikes,
-    }
-
+        "click": honda_click_bikes}
     bikes = bike_collections.get(model)
     if bikes and 0 <= page < len(bikes):
         return bikes[page]
 
 
-# Клавиатура байка
+# # Фунция получения байка по модели и странице
+# def get_bike(model: str, page: int):
+#     bike_collections = {
+#         "pcx": honda_pcx_bikes,
+#         # "click": honda_click_bikes,
+#         # "adv": honda_adv_bikes,
+#         # "forza": honda_forza_bikes,
+#         # "xmax": yamaha_xmax_bikes,
+#         # "scoopy": honda_scoopy_bikes,
+#         # "zoomer": honda_zoomer_bikes,
+#         # "fino": yamaha_fino_bikes,
+#     }
+#
+#     bikes = bike_collections.get(model)
+#     print(bikes, 'XXX')
+#     if bikes and 0 <= page < len(bikes):
+#         return bikes[page]
+
+
+# Клавиатура для управления байком и навигацией по страницам
 def bike_keyboard(model: str, page: int):
-    bike_collections = {
-        "pcx": honda_pcx_bikes,
-        "click": honda_click_bikes,
-        "adv": honda_adv_bikes,
-        "forza": honda_forza_bikes,
-        "xmax": yamaha_xmax_bikes,
-        "scoopy": honda_scoopy_bikes,
-        "zoomer": honda_zoomer_bikes,
-        "fino": yamaha_fino_bikes,
-    }
-    bikes = bike_collections.get(model)
-    total_pages = len(bikes) if bikes else 0
-    keyboard = InlineKeyboardBuilder()
-    keyboard.add(
-        InlineKeyboardButton(text="🔍 Выбрать даты", callback_data=StartCalendarCallBack(model=model, page=page).pack()))
-    keyboard.add(InlineKeyboardButton(text="🛵 Байки", callback_data="байки"))
-    keyboard.add(InlineKeyboardButton(text="🏠 На главную", callback_data="главная"))
-    if page > 0:
-        keyboard.add(InlineKeyboardButton(text="⬅️", callback_data=f"prev_{model}_{page}"))
+    conn = get_db_connection()
+    cursor = None
+    print(model)
+    try:
+        cursor = conn.cursor()  # Создание курсора
 
-    keyboard.add(
-        InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
+        # Запрос для получения общего количества байков по модели
+        query = """
+            SELECT COUNT(*) 
+            FROM bikess 
+            WHERE model = %s
+        """
+        cursor.execute(query, (model,))  # Выполнение запроса
+        result = cursor.fetchone()  # Получение одной строки результата
+        print(result)
+        total_bikes = result[0] if result else 0
+        print(total_bikes, "TOTAL BIKES")
+        total_pages = total_bikes  # Расчет общего количества страниц, если 10 байков на страницу
 
-    if bikes and page < total_pages - 1:
-        keyboard.add(InlineKeyboardButton(text="➡️", callback_data=f"next_{model}_{page}"))
+        # Инициализация клавиатуры
+        keyboard = InlineKeyboardBuilder()
+        keyboard.add(
+            InlineKeyboardButton(
+                text="🔍 Выбрать даты",
+                callback_data=StartCalendarCallBack(model=model, page=page).pack()
+            )
+        )
+        keyboard.add(InlineKeyboardButton(text="🛵 Байки", callback_data="байки"))
+        keyboard.add(InlineKeyboardButton(text="🏠 На главную", callback_data="главная"))
 
-    return keyboard.adjust(2, 1, 3).as_markup()
+        # Добавление кнопок навигации по страницам
+        if page > 0:
+            keyboard.add(InlineKeyboardButton(text="⬅️", callback_data=f"prev_{model}_{page}"))
+
+        keyboard.add(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
+
+        if page < total_pages - 1:
+            keyboard.add(InlineKeyboardButton(text="➡️", callback_data=f"next_{model}_{page + 1}"))
+
+        # Возврат клавиатуры с кнопками
+        return keyboard.adjust(2, 1, 3).as_markup()
+    except Exception as e:
+        print(f"Ошибка при выполнении запроса: {e}")
+        return None
+    finally:
+        if cursor:
+            cursor.close()  # Закрытие курсора
+        conn.close()  # Закрытие соединения
+
+
+# # Клавиатура байка
+# def bike_keyboard(model: str, page: int):
+#     bike_collections = {
+#         "pcx": honda_pcx_bikes,
+#         # "click": honda_click_bikes,
+#         # "adv": honda_adv_bikes,
+#         # "forza": honda_forza_bikes,
+#         # "xmax": yamaha_xmax_bikes,
+#         # "scoopy": honda_scoopy_bikes,
+#         # "zoomer": honda_zoomer_bikes,
+#         # "fino": yamaha_fino_bikes,
+#     }
+#     bikes = bike_collections.get(model)
+#     total_pages = len(bikes) if bikes else 0
+#     keyboard = InlineKeyboardBuilder()
+#     keyboard.add(
+#         InlineKeyboardButton(text="🔍 Выбрать даты", callback_data=StartCalendarCallBack(model=model, page=page).pack()))
+#     keyboard.add(InlineKeyboardButton(text="🛵 Байки", callback_data="байки"))
+#     keyboard.add(InlineKeyboardButton(text="🏠 На главную", callback_data="главная"))
+#     if page > 0:
+#         keyboard.add(InlineKeyboardButton(text="⬅️", callback_data=f"prev_{model}_{page}"))
+#
+#     keyboard.add(
+#         InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
+#
+#     if bikes and page < total_pages - 1:
+#         keyboard.add(InlineKeyboardButton(text="➡️", callback_data=f"next_{model}_{page}"))
+#
+#     return keyboard.adjust(2, 1, 3).as_markup()
 
 
 # Обработчик команды /start
@@ -510,7 +546,7 @@ async def bike_choose(callback_query: types.CallbackQuery):
 async def show_bike(callback_query: types.CallbackQuery):
     _, model, page = callback_query.data.split("_")
     page = int(page)
-    bike = get_bike(model, page)
+    bike = await get_bike(model, page)
     photo = FSInputFile(bike["photo"])
     caption = f"{bike['name']}:\n\n{bike['description']}"
 
@@ -521,27 +557,67 @@ async def show_bike(callback_query: types.CallbackQuery):
     )
 
 
+# Функция для получения общего количества байков по модели
+def get_total_bikes(model: str) -> int:
+    conn = get_db_connection()
+    cursor = None
+    try:
+        cursor = conn.cursor()  # Создание курсора
+        query = """
+            SELECT COUNT(*) 
+            FROM bikes 
+            WHERE model = %s
+        """
+        cursor.execute(query, (model,))  # Выполнение запроса
+        result = cursor.fetchone()  # Получение одной строки результата
+        total_bikes = result[0] if result else 0  # Извлечение значения из результата
+        print(total_bikes, "TOTAL BIKES")
+        return total_bikes
+    except Exception as e:
+        print(f"Ошибка при выполнении запроса: {e}")
+        return 0
+    finally:
+        if cursor:
+            cursor.close()  # Закрытие курсора
+        conn.close()  # Закрытие соединения
+
+
 # Пагинация байков
 @dp.callback_query(F.data.startswith(("prev_", "next_")))
 async def paginate_bikes(callback_query: types.CallbackQuery):
     data = callback_query.data
     action, model, current_page = data.split("_")
     current_page = int(current_page)
+
+    # Определяем номер следующей страницы
     if action == "prev":
         next_page = current_page - 1 if current_page > 0 else 0
     else:
-        next_page = current_page if model not in ["pcx", "click", "adv", "forza", "xmax", "scoopy", "zoomer",
-                                                  "fino"] or current_page >= len(
-            get_bike(model=model, page=0)) + len(get_bike(model=model, page=0)) else current_page + 1
+        # Получаем количество байков для проверки на последнюю страницу
+        total_bikes = get_total_bikes(
+            model)  # Добавьте функцию get_total_bikes, чтобы считать количество байков в модели
+        next_page = current_page + 1 if current_page < total_bikes - 1 else current_page
 
-    bike = get_bike(model, next_page)
-    photo = FSInputFile(bike["photo"])
-    caption = f"{bike['name']}:\n\n{bike['description']}"
+    # Асинхронно получаем данные о байке
+    bike = await get_bike(model, next_page)  # Добавлено await для асинхронной функции
 
-    await callback_query.message.edit_media(
-        types.InputMediaPhoto(media=photo, caption=caption),
-        reply_markup=bike_keyboard(model, next_page)
-    )
+    # Проверяем, что байк найден
+    if bike:
+        # Загружаем фотографию байка
+        photo = FSInputFile(bike["photo"])
+        caption = f"{bike['name']}:\n\n{bike['description']}"
+
+        # Получаем клавиатуру с использованием await
+        keyboard = bike_keyboard(model, next_page)  # Добавлено await для асинхронного вызова
+
+        # Редактируем сообщение с новым байком и клавиатурой
+        await callback_query.message.edit_media(
+            types.InputMediaPhoto(media=photo, caption=caption),
+            reply_markup=keyboard
+        )
+    else:
+        # Обработка случая, когда байк не найден
+        await callback_query.message.answer("Байк не найден или отсутствует.")
 
 
 # Обработчик кнопки '🏠 На главную'
@@ -557,9 +633,9 @@ async def main_menu(callback_query: types.CallbackQuery):
 
 
 # Функция создания клавиатуры календаря
-def create_calendar_keyboard(year: int, month: int, action: str, model: str, page: int, bike_name: str):
+async def create_calendar_keyboard(year: int, month: int, action: str, model: str, page: int, bike_name: str):
     # Загружаем актуальные данные о бронированиях
-    booking_data = load_booking_data()
+    booking_data = load_booking_data()  # Используем await для вызова асинхронной функции
     # Получаем даты, которые уже забронированы для конкретного байка
     booked_dates = booking_data.get(bike_name, {})
     markup = InlineKeyboardBuilder()
@@ -567,10 +643,14 @@ def create_calendar_keyboard(year: int, month: int, action: str, model: str, pag
     markup.add(InlineKeyboardButton(text="🏠 На главную", callback_data="главная_2"))
     markup.add(InlineKeyboardButton(text=month_name, callback_data="ignore"))
 
+    # Добавляем названия дней недели
     markup.add(
-        *[InlineKeyboardButton(text=day, callback_data="ignore") for day in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]])
+        *[InlineKeyboardButton(text=day, callback_data="ignore") for day in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]]
+    )
+
     month_calendar = calendar.monthcalendar(year, month)
-    print("X1337", booked_dates)
+
+    # Заполняем календарь с учетом забронированных дат
     for week in month_calendar:
         row = []
         for day in week:
@@ -580,28 +660,46 @@ def create_calendar_keyboard(year: int, month: int, action: str, model: str, pag
                 date_str = f"{year}-{month:02d}-{day:02d}"
                 booked = False
                 if booked_dates:
-                    for i in booked_dates.values():
-                        for interval_start, interval_end in i:
-
+                    for intervals in booked_dates.values():
+                        for interval_start, interval_end in intervals:
                             if str(interval_start) <= date_str <= str(interval_end):
                                 row.append(InlineKeyboardButton(text=f"✖️{day}", callback_data="ignore"))
                                 booked = True
                                 break
                 if not booked:
-                    row.append(InlineKeyboardButton(text=str(day),
-                                                    callback_data=DayCallBack(action=action, model=model,
-                                                                              page=page, year=year,
-                                                                              month=month,
-                                                                              day=day).pack()))
+                    row.append(
+                        InlineKeyboardButton(
+                            text=str(day),
+                            callback_data=DayCallBack(
+                                action=action,
+                                model=model,
+                                page=page,
+                                year=year,
+                                month=month,
+                                day=day
+                            ).pack()
+                        )
+                    )
         markup.add(*row)
-    markup.add(*[InlineKeyboardButton(text="⬅️",
-                                      callback_data=PreMonthCallBack(action=action, model=model,
-                                                                     page=page, year=year,
-                                                                     month=month).pack()), InlineKeyboardButton(
-        text="➡️",
-        callback_data=NexMonthCallBack(action=action, model=model,
-                                       page=page, year=year,
-                                       month=month).pack())])
+
+    # Добавляем кнопки навигации по месяцам
+    markup.add(
+        *[
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=PreMonthCallBack(
+                    action=action, model=model, page=page, year=year, month=month
+                ).pack()
+            ),
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=NexMonthCallBack(
+                    action=action, model=model, page=page, year=year, month=month
+                ).pack()
+            )
+        ]
+    )
+
     return markup.adjust(1, 1, 7, 7, 7, 7, 7, 7, 7).as_markup()
 
 
@@ -611,13 +709,23 @@ async def show_start_calendar(callback_query: types.CallbackQuery, callback_data
     model = callback_data.model
     page = callback_data.page
     now = datetime.now()
-    bike = get_bike(model, page)
+    bike = await get_bike(model, page)  # Предполагается, что get_bike теперь асинхронная
     booked_dates = bike["booked_dates"]
+
+    # Используем await для вызова асинхронной функции create_calendar_keyboard
+    calendar_keyboard = await create_calendar_keyboard(
+        year=now.year,
+        month=now.month,
+        action="start",
+        model=model,
+        page=page,
+        bike_name=bike['name']
+    )
+
     await callback_query.message.answer(
         text=f"Сегодняшняя дата: {date.today()} \n\nПожалуйста, выберите дату начала бронирования:",
-        reply_markup=create_calendar_keyboard(year=now.year, month=now.month,
-                                              action="start", model=model,
-                                              page=page, bike_name=bike['name']))
+        reply_markup=calendar_keyboard
+    )
 
 
 # Обработчик выбора даты окончания бронирования
@@ -626,25 +734,56 @@ async def show_end_calendar(callback_query: types.CallbackQuery, callback_data: 
     model = callback_data.model
     page = callback_data.page
     now = datetime.now()
-    bike = get_bike(model, page)
+    bike = await get_bike(model, page)  # Предполагается, что get_bike теперь асинхронная
     booked_dates = bike["booked_dates"]
-    await callback_query.message.edit_text(text="Пожалуйста, выберите дату окончания бронирования:",
-                                           reply_markup=create_calendar_keyboard(year=now.year, month=now.month,
-                                                                                 action="end", model=model,
-                                                                                 page=page,
-                                                                                 bike_name=bike['name']))
+
+    # Используем await для вызова асинхронной функции create_calendar_keyboard
+    calendar_keyboard = await create_calendar_keyboard(
+        year=now.year,
+        month=now.month,
+        action="end",
+        model=model,
+        page=page,
+        bike_name=bike['name']
+    )
+
+    await callback_query.message.edit_text(
+        text="Пожалуйста, выберите дату окончания бронирования:",
+        reply_markup=calendar_keyboard
+    )
+
+
+async def create_pool():
+    return await asyncpg.create_pool(dsn=DATABASE_URL)
 
 
 # Проверка на пересечение интервалов брони
-def is_date_range_available(start_date, end_date, bike_name):
-    # Загружаем актуальные данные о бронированиях
-    booking_data = load_booking_data()
-    # Получаем даты, которые уже забронированы для конкретного байка
-    booked_dates = booking_data.get(bike_name, {})
-    for i in booked_dates.values():
-        for interval_start, interval_end in i:
-            if start_date <= interval_end and end_date >= interval_start:
-                return False
+async def is_date_range_available(start_date, end_date, bike_name):
+    """
+    Проверяет доступность интервала бронирования для указанного байка.
+
+    :param start_date: Дата начала бронирования.
+    :param end_date: Дата окончания бронирования.
+    :param bike_name: Имя байка.
+    :return: True, если даты доступны, иначе False.
+    """
+
+    pool = await create_pool()
+    # Запрос к базе данных для получения забронированных интервалов для данного байка
+    query = """
+    SELECT start_date, end_date 
+    FROM booking 
+    WHERE bike_name = $1;
+    """
+    async with pool.acquire() as connection:
+        records = await connection.fetch(query, bike_name)
+
+    # Проверяем, пересекается ли интервал с существующими бронированиями
+    for record in records:
+        interval_start = record['start_date']
+        interval_end = record['end_date']
+        if start_date <= interval_end and end_date >= interval_start:
+            return False
     return True
 
 
@@ -683,45 +822,79 @@ async def process_calendar_day(callback_query: types.CallbackQuery, callback_dat
     action = callback_data.action
     page = callback_data.page
     model = callback_data.model
-    bike = get_bike(model, page)
-    booked_dates = bike["booked_dates"]
+    bike = await get_bike(model, page)  # Используем асинхронную функцию для получения байка из базы данных
     selected_date = date(year, month, day)
     user_id = callback_query.from_user.id
 
     if action == "start":
         if selected_date < datetime.now().date():
             await callback_query.message.answer(
-                "Дата начала бронирования не может быть раньше текущей даты. Выберите другую дату.")
+                "Дата начала бронирования не может быть раньше текущей даты. Выберите другую дату."
+            )
         else:
             user_data[user_id] = {"start_date": selected_date}
+            # Проверяем, что функция confirm_date корректно вызывается с await, если она асинхронная
+            confirm_markup = confirm_date(  # Добавлено await для асинхронного вызова
+                year=selected_date.year,
+                month=selected_date.month,
+                action="end",
+                model=model,
+                page=page,
+                day=day,
+                booked_dates={}  # Обновляем для использования с базой данных
+            )
             await callback_query.message.edit_text(
                 text=f"Дата начала бронирования: {selected_date.strftime('%d-%m-%Y')}",
-                reply_markup=confirm_date(year=selected_date.year, month=selected_date.month, action="end",
-                                          model=model,
-                                          page=page, day=day, booked_dates=booked_dates))
+                reply_markup=confirm_markup  # Используем результат вызова с await
+            )
 
     elif action == "end":
         if user_id in user_data and "start_date" in user_data[user_id]:
             start_date = user_data[user_id]["start_date"]
             if selected_date < start_date:
                 await callback_query.message.answer(
-                    "Дата окончания бронирования не может быть раньше даты начала. Пожалуйста, выберите дату окончания снова.")
+                    "Дата окончания бронирования не может быть раньше даты начала. Пожалуйста, выберите дату окончания снова."
+                )
                 return
-            # Check if the entire date range is available
-            if not is_date_range_available(start_date, selected_date, bike_name=bike['name']):
+
+            # Проверяем доступность интервала дат через базу данных
+            is_available = await is_date_range_available(
+                start_date=start_date,
+                end_date=selected_date,
+                bike_name=bike['name'])
+
+            if not is_available:
                 await callback_query.message.answer(
-                    "Этот интервал дат уже забронирован. Пожалуйста, выберите другой интервал.")
+                    "Этот интервал дат уже забронирован. Пожалуйста, выберите другой интервал."
+                )
+                # Проверяем, что функция create_calendar_keyboard корректно вызывается с await, если она асинхронная
+                calendar_markup = await create_calendar_keyboard(  # Добавлено await для асинхронного вызова
+                    year=year,
+                    month=month,
+                    action="start",
+                    model=model,
+                    page=page,
+                    bike_name=bike['name']
+                )
                 await callback_query.message.answer(
                     text=f"Сегодняшняя дата: {date.today()} \n\nПожалуйста, выберите дату начала бронирования:",
-                    reply_markup=create_calendar_keyboard(year=year, month=month,
-                                                          action="start", model=model,
-                                                          page=page, bike_name=bike['name']))
+                    reply_markup=calendar_markup  # Используем результат вызова с await
+                )
             else:
+                # Проверяем, что функция confirm_end_date корректно вызывается с await, если она асинхронная
+                end_confirm_markup = confirm_end_date(  # Добавлено await для асинхронного вызова
+                    year=selected_date.year,
+                    month=selected_date.month,
+                    action="end",
+                    model=model,
+                    page=page,
+                    day=day,
+                    booked_dates={}  # Обновляем для использования с базой данных
+                )
                 await callback_query.message.edit_text(
                     text=f"Дата окончания бронирования: {selected_date.strftime('%d-%m-%Y')}",
-                    reply_markup=confirm_end_date(year=selected_date.year, month=selected_date.month, action="end",
-                                                  model=model,
-                                                  page=page, day=day, booked_dates=booked_dates))
+                    reply_markup=end_confirm_markup  # Используем результат вызова с await
+                )
         else:
             await callback_query.message.answer("Пожалуйста, сначала выберите дату начала бронирования.")
 
@@ -734,15 +907,26 @@ async def prev_month(callback_query: types.CallbackQuery, callback_data: PreMont
     action = callback_data.action
     page = callback_data.page
     model = callback_data.model
-    bike = get_bike(model, page)
-    booked_dates = bike["booked_dates"]
+
+    # Добавляем await, если get_bike является асинхронной функцией
+    bike = await get_bike(model, page)  # Добавьте await перед get_bike, если она асинхронная
+
     current_date = datetime(int(year), int(month), day=1)
     prev_date = current_date - timedelta(days=1)
+
+    # Используем await, если create_calendar_keyboard асинхронная функция
+    calendar_markup = await create_calendar_keyboard(  # Уберите await, если функция синхронная
+        year=prev_date.year,
+        month=prev_date.month,
+        action=action,
+        model=model,
+        page=int(page),
+        bike_name=bike['name']
+    )
+
     await callback_query.message.edit_reply_markup(
-        reply_markup=create_calendar_keyboard(year=prev_date.year, month=prev_date.month, action=action,
-                                              model=model,
-                                              page=int(page),
-                                              bike_name=bike['name']))
+        reply_markup=calendar_markup
+    )
 
 
 # Обработчик пролистывания календаря вперед
@@ -753,16 +937,28 @@ async def next_month(callback_query: types.CallbackQuery, callback_data: NexMont
     action = callback_data.action
     page = callback_data.page
     model = callback_data.model
-    bike = get_bike(model, page)
+
+    # Используем await, если get_bike асинхронная функция
+    bike = await get_bike(model, page)  # Добавьте await, если get_bike является асинхронной функцией
+
     booked_dates = bike["booked_dates"]
     current_date = datetime(int(year), int(month), day=1)
     next_date = current_date + timedelta(days=31)
     next_date = next_date.replace(day=1)
+
+    # Используем await, если create_calendar_keyboard асинхронная функция
+    calendar_markup = await create_calendar_keyboard(  # Уберите await, если функция синхронная
+        year=next_date.year,
+        month=next_date.month,
+        action=action,
+        model=model,
+        page=int(page),
+        bike_name=bike['name']
+    )
+
     await callback_query.message.edit_reply_markup(
-        reply_markup=create_calendar_keyboard(year=next_date.year, month=next_date.month, action=action,
-                                              model=model,
-                                              page=int(page),
-                                              bike_name=bike['name']))
+        reply_markup=calendar_markup
+    )
 
 
 # Обработчик кнопки "На главную"
@@ -797,16 +993,28 @@ def date_keyboard(action: str, model: str, page: int, year: int, month: int, day
 async def change_booking(callback_query: types.CallbackQuery, callback_data: ChangeBookingCallBack):
     model = callback_data.model
     page = callback_data.page
-    bike = get_bike(model, page)
+
+    # Если get_bike является асинхронной, используйте await
+    bike = await get_bike(model, page)  # Добавьте await, если get_bike асинхронная
+
     user_id = callback_query.from_user.id
 
     if user_id in bike["booked_dates"]:
         del bike["booked_dates"][user_id]  # Сброс забронированных дат для данного пользователя
 
+    # Используйте await, если create_calendar_keyboard асинхронная
+    calendar_markup = await create_calendar_keyboard(  # Уберите await, если функция синхронная
+        datetime.now().year,
+        datetime.now().month,
+        "start",
+        model,
+        page,
+        bike["booked_dates"]
+    )
+
     await callback_query.message.edit_text(
         text="Выберите новые даты: ",
-        reply_markup=create_calendar_keyboard(datetime.now().year, datetime.now().month, "start", model, page,
-                                              bike["booked_dates"])
+        reply_markup=calendar_markup  # Используйте результат вызова create_calendar_keyboard
     )
 
 
@@ -818,13 +1026,26 @@ async def confirm_start(callback_query: types.CallbackQuery, callback_data: Conf
     day = callback_data.day
     page = callback_data.page
     model = callback_data.model
-    bike = get_bike(model, page)
+
+    # Используем await, если get_bike асинхронная функция
+    bike = await get_bike(model, page)  # Добавьте await, если get_bike асинхронная
+
     selected_date = date(year, month, day)
+
+    # Используем await, если create_calendar_keyboard асинхронная функция
+    calendar_markup = await create_calendar_keyboard(  # Уберите await, если функция синхронная
+        year=selected_date.year,
+        month=selected_date.month,
+        action="end",
+        model=model,
+        page=page,
+        bike_name=bike['name']
+    )
+
     await callback_query.message.edit_text(
         text=f"Дата начала бронирования: {selected_date.strftime('%d-%m-%Y')}\n\nТеперь выберите дату окончания бронирования:",
-        reply_markup=create_calendar_keyboard(year=selected_date.year, month=selected_date.month, action="end",
-                                              model=model,
-                                              page=page, bike_name=bike['name']))
+        reply_markup=calendar_markup  # Используем результат вызова create_calendar_keyboard
+    )
 
 
 # Обработчик кнопки "Подтвердить" даты окончания бронирования
@@ -836,7 +1057,7 @@ async def confirm_end(callback_query: types.CallbackQuery, callback_data: Confir
     action = callback_data.action
     page = callback_data.page
     model = callback_data.model
-    bike = get_bike(model, page)
+    # bike = get_bike(model, page)
     selected_date = date(year, month, day)
     start_date = user_data[callback_query.from_user.id]["start_date"]
     await callback_query.message.edit_text(
@@ -861,7 +1082,10 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
     day = callback_data.day
     page = callback_data.page
     model = callback_data.model
-    bike = get_bike(model, page)
+
+    # Используем await, если get_bike асинхронная функция
+    bike = await get_bike(model, page)  # Добавляем await, если get_bike асинхронная функция
+
     user_id = callback_query.from_user.id
     start_date = user_data[callback_query.from_user.id]["start_date"]
     selected_date = date(year, month, day)
@@ -871,37 +1095,37 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
     user_data[user_id]['bike_name'] = bike_name
     username = callback_query.from_user.username
     print("1337X", booked_dates)
+
     if user_id in user_data and "start_date" in user_data[user_id] and "end_date" in user_data[user_id]:
         if user_id not in booked_dates:
             booked_dates[user_id] = []
-        booke = start_date.strftime('%d-%m-%Y'), selected_date.strftime('%d-%m-%Y')
+        booke = (start_date.strftime('%d-%m-%Y'), selected_date.strftime('%d-%m-%Y'))
         booked_dates[user_id].append(booke)
         print("USER_DATA", user_data)
         print("BOOKED_DATES", booked_dates)
         start_date = user_data[user_id]["start_date"]
         end_date = user_data[user_id]["end_date"]
-        model = 'pcx'  # или 'click', в зависимости от выбранной модели байка
-        page = 0  # номер страницы, на которой выбран байк
+
         # Получение ссылки на профиль пользователя
-        user_profile_link = f"https://t.me/{callback_query.from_user.username}" if callback_query.from_user.username else "Не задано"
+        user_profile_link = f"https://t.me/{username}" if username else "Не задано"
 
         # Отправка сообщения администраторам
         booking_info = (
             f"Пользователь {callback_query.from_user.full_name} ({user_profile_link}) \n\n"
             f"забронировал {user_data[user_id]['bike_name']} \nс {start_date.strftime('%d-%m-%Y')} по {end_date.strftime('%d-%m-%Y')}."
         )
-        save_booking_data(user_id, bike['name'], start_date, end_date, username)
+
+        # Сохраняем данные о бронировании с использованием await
+        save_booking_data(user_id, bike['name'], start_date, end_date, username)  # Добавляем await
+
+        # Отправка сообщения админу
         await bot.send_message(ADMIN_GROUP_ID, booking_info)
 
         await callback_query.message.edit_text(
             text="Ваше бронирование подтверждено!\n\nС вами свяжутся Админы в ближайшее время!",
-            reply_markup=booking_information(model, page))
-        reminder_date = datetime(2024, 7, 31).date()
-        reminder_time = time(0, 0)  # Время напоминания (14:30)
-        reminder_datetime = datetime.combine(reminder_date, reminder_time)
-        # Schedule a notification at the specified time
-        # scheduler.add_job(send_notification(user_id), trigger='date', run_date=reminder_datetime,
-        #                 args=[user_id, end_date])
+            reply_markup=booking_information(model, page)
+            # Если booking_information асинхронная функция, добавьте await
+        )
     else:
         await callback_query.message.answer("Произошла ошибка при бронировании. Попробуйте снова.")
 
@@ -910,27 +1134,34 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
 @dp.callback_query(F.data == "📋 Мои бронирования")
 async def my_bookings(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
+    conn = None
     try:
-        # Загружаем данные с листа 'bookings'
-        df = pd.read_excel("bikes.xlsx", sheet_name="bookings")
+        # Соединение с базой данных
+        conn = await asyncpg.connect(DATABASE_URL)
 
-        # Фильтруем бронирования по user_id
-        user_bookings = df[df['user_id'] == user_id]
+        # Запрос для получения бронирований пользователя по user_id
+        query = """
+            SELECT bike_name, start_date, end_date 
+            FROM booking 
+            WHERE user_id = $1;
+            """
+        records = await conn.fetch(query, user_id)
 
-        if not user_bookings.empty:
+        if records:
             booking_info = "Ваши бронирования:\n"
-            for i, row in user_bookings.iterrows():
-                bike_name = row['bike_name']
-                start_date = pd.to_datetime(row['start_date'], dayfirst=True).strftime('%d-%m-%Y')
-                end_date = pd.to_datetime(row['end_date'], dayfirst=True).strftime('%d-%m-%Y')
+            for i, record in enumerate(records):
+                bike_name = record['bike_name']
+                start_date = record['start_date'].strftime('%d-%m-%Y')
+                end_date = record['end_date'].strftime('%d-%m-%Y')
                 booking_info += f"{i + 1}. {bike_name} с {start_date} по {end_date}\n"
         else:
             booking_info = "У вас нет текущих бронирований."
 
-    except FileNotFoundError:
-        booking_info = "Ошибка: Файл с данными о бронированиях не найден."
-    except ValueError:
-        booking_info = "Ошибка: Неверный формат данных в файле бронирований."
+    except asyncpg.PostgresError as e:
+        booking_info = f"Ошибка при работе с базой данных: {e}"
+    finally:
+        if conn:
+            await conn.close()  # Закрытие соединения, если оно было установлено
 
     await callback_query.message.answer(text=booking_info, reply_markup=glavnaya_keyboard())
 
@@ -969,6 +1200,19 @@ async def contacts(callback_query: types.CallbackQuery):
                                                 last_name='Sbitnev'  # Замените на вашу фамилию (необязательно)
                                                 , reply_markup=glavnaya_keyboard())
     await callback_query.answer()
+
+
+# async def test_connection():
+#     conn = await asyncpg.connect(
+#         user='postgres',
+#         password='YZFaxXjLdSFHFfZTvSdlQOMweozxAyrs',
+#         database='postgresql://postgres:YZFaxXjLdSFHFfZTvSdlQOMweozxAyrs@meticulous-empathy.railway.internal:5432/railway',
+#         host='localhost',
+#         port=5432
+#     )
+#
+#
+# asyncio.run(test_connection())
 
 
 async def main():
