@@ -23,7 +23,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # Данные для подключения к базе данных
-DATABASE_URL = "postgresql://postgres:YZFaxXjLdSFHFfZTvSdlQOMweozxAyrs@junction.proxy.rlwy.net:39641/railway"  # URL подключения к базе данных из Railway
+DATABASE_URL = "postgresql://postgres:HCXoXLARQwqBOJofbfPkZXEepCdtuNWm@junction.proxy.rlwy.net:31130/railway"  # URL подключения к базе данных из Railway
 
 
 # Функция для подключения к базе данных
