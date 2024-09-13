@@ -17,6 +17,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import TOKEN
 import asyncpg
 import psycopg2
+from functools import lru_cache
+import connectorx as cx
+from asyncpg.pool import Pool
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -40,7 +43,7 @@ def get_db_connection():
 def load_booking_data():
     conn = get_db_connection()
     try:
-        query = "SELECT bike_name, user_id, start_date, end_date FROM booking"
+        query = "SELECT bike_name, user_id, start_date, end_date FROM bookings"
         cursor = conn.cursor()
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -80,7 +83,7 @@ def load_bike_data():
 
     try:
         cursor = conn.cursor()
-        query = "SELECT name, description, photo, model FROM bikess"
+        query = "SELECT name, description, photo, model FROM bikes"
         cursor.execute(query)
         rows = cursor.fetchall()
 
@@ -120,7 +123,7 @@ def save_booking_data(user_id, bike_name, start_date, end_date, username):
     try:
         cursor = conn.cursor()  # Создание курсора для выполнения SQL-запросов
         query = """
-            INSERT INTO booking (user_id, bike_name, start_date, end_date, username)
+            INSERT INTO bookings (user_id, bike_name, start_date, end_date, username)
             VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(query, (user_id, bike_name, start_date, end_date, username))  # Выполнение запроса через курсор
@@ -220,7 +223,7 @@ def get_user_ids_from_db():
         # Создаем курсор для выполнения запроса
         cursor = conn.cursor()
         # Выполняем запрос к базе данных, чтобы получить уникальные user_id из таблицы "bookings"
-        cursor.execute("SELECT DISTINCT user_id FROM booking")
+        cursor.execute("SELECT DISTINCT user_id FROM bookings")
         rows = cursor.fetchall()
         # Извлекаем user_id из результатов
         user_ids = {row[0] for row in rows}
@@ -435,7 +438,7 @@ def bike_keyboard(model: str, page: int):
         # Запрос для получения общего количества байков по модели
         query = """
             SELECT COUNT(*) 
-            FROM bikess 
+            FROM bikes 
             WHERE model = %s
         """
         cursor.execute(query, (model,))  # Выполнение запроса
@@ -632,7 +635,7 @@ async def main_menu(callback_query: types.CallbackQuery):
 # Функция создания клавиатуры календаря
 async def create_calendar_keyboard(year: int, month: int, action: str, model: str, page: int, bike_name: str):
     # Загружаем актуальные данные о бронированиях
-    booking_data = load_booking_data()  # Используем await для вызова асинхронной функции
+    booking_data = load_booking_data()
     # Получаем даты, которые уже забронированы для конкретного байка
     booked_dates = booking_data.get(bike_name, {})
     markup = InlineKeyboardBuilder()
@@ -755,7 +758,7 @@ async def create_pool():
 
 
 # Проверка на пересечение интервалов брони
-async def is_date_range_available(start_date, end_date, bike_name):
+async def is_date_range_available(start_date: date, end_date: date, bike_name: str) -> bool:
     """
     Проверяет доступность интервала бронирования для указанного байка.
 
@@ -764,23 +767,34 @@ async def is_date_range_available(start_date, end_date, bike_name):
     :param bike_name: Имя байка.
     :return: True, если даты доступны, иначе False.
     """
-
     pool = await create_pool()
+
+    # Отладочные сообщения
+    print(f"Проверяем доступность: start_date={start_date}, end_date={end_date}, bike_name={bike_name}")
+    print(f"Типы данных: start_date={type(start_date)}, end_date={type(end_date)}, bike_name={type(bike_name)}")
+
     # Запрос к базе данных для получения забронированных интервалов для данного байка
     query = """
-    SELECT start_date, end_date 
-    FROM booking 
+    SELECT start_date, end_date
+    FROM bookings
     WHERE bike_name = $1;
     """
+
     async with pool.acquire() as connection:
         records = await connection.fetch(query, bike_name)
+        print(f"Полученные записи: {records}")
 
     # Проверяем, пересекается ли интервал с существующими бронированиями
     for record in records:
         interval_start = record['start_date']
         interval_end = record['end_date']
+        print(f"Проверка интервала: {interval_start} - {interval_end}")
+
         if start_date <= interval_end and end_date >= interval_start:
+            print(f"Пересечение найдено с интервалом: {interval_start} - {interval_end}")
             return False
+
+    print("Даты доступны для бронирования")
     return True
 
 
@@ -1139,7 +1153,7 @@ async def my_bookings(callback_query: types.CallbackQuery):
         # Запрос для получения бронирований пользователя по user_id
         query = """
             SELECT bike_name, start_date, end_date 
-            FROM booking 
+            FROM bookings
             WHERE user_id = $1;
             """
         records = await conn.fetch(query, user_id)
