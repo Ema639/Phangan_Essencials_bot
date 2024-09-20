@@ -3,7 +3,6 @@ import asyncio
 from aiogram.filters import Command
 from aiogram import F
 import logging
-import os
 from aiogram.types import FSInputFile
 from aiogram.filters.callback_data import CallbackData
 from datetime import datetime, timedelta, date, time
@@ -11,12 +10,12 @@ import calendar
 from aiogram.filters.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import pandas as pd
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import TOKEN
 import asyncpg
 import psycopg2
+
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -65,14 +64,6 @@ def load_booking_data():
         conn.close()
 
 
-# @lru_cache(maxsize=128)
-# def get_data():
-#     query = "SELECT name, description, photo, model FROM bikes"
-#     """Получает данные из базы данных и кэширует результаты."""
-#     # Выполняем запрос и возвращаем результаты в виде DataFrame
-#     return pd.DataFrame(cx.read_sql(conn=DATABASE_URL, query=query, return_type="pandas"))
-
-
 # Функция для загрузки данных о байках из таблицы "bikes"
 def load_bike_data():
     conn = get_db_connection()
@@ -104,13 +95,73 @@ def load_bike_data():
             for row in rows if row[3] == 'click'
         ]
 
-        print(honda_pcx_bikes, "XXXXXXXX")
-        return honda_pcx_bikes, honda_click_bikes
+        honda_adv_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'adv'
+        ]
+
+        honda_forza_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'forza'
+        ]
+
+        yamaha_xmax_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'xmax'
+        ]
+
+        honda_scoopy_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'scoopy'
+        ]
+
+        honda_zoomer_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'zoomer'
+        ]
+
+        yamaha_fino_bikes = [
+            {
+                "name": row[0],  # Используем индексы вместо имен полей
+                "description": row[1],
+                "photo": row[2],
+                "booked_dates": booking_data.get(row[0], {})
+            }
+            for row in rows if row[3] == 'fino'
+        ]
+
+
+        return honda_pcx_bikes, honda_click_bikes, honda_adv_bikes, honda_forza_bikes, yamaha_xmax_bikes, honda_scoopy_bikes, honda_zoomer_bikes, yamaha_fino_bikes
     finally:
         conn.close()
 
 
-honda_pcx_bikes, honda_click_bikes = load_bike_data()
+honda_pcx_bikes, honda_click_bikes, honda_adv_bikes, honda_forza_bikes, yamaha_xmax_bikes, honda_scoopy_bikes, honda_zoomer_bikes, yamaha_fino_bikes = load_bike_data()
 
 
 # Функция для сохранения данных о бронировании в таблицу "bookings"
@@ -144,73 +195,86 @@ REVIEWS_GROUP_ID = -4268299607
 REVIEWS_GROUP_LINK = '+fnrHSRyfk-A5ZmQy'
 
 
-# Функция для загрузки черного списка
+# Функция для загрузки черного списка из базы данных
 def load_blacklist():
     try:
-        df = pd.read_excel("bikes.xlsx", sheet_name="black list")
-        blacklist = set(df['user_id'].tolist())  # Сохраняем ID пользователей в виде множества для быстрого поиска
+        # Получаем соединение с базой данных через существующую функцию
+        conn = get_db_connection()
+
+        # Создаем курсор для выполнения запросов
+        cursor = conn.cursor()
+
+        # Выполняем запрос для получения черного списка пользователей
+        query = "SELECT user_id FROM blacklist;"
+        cursor.execute(query)
+
+        # Извлекаем результаты и создаем множество user_id
+        records = cursor.fetchall()
+        blacklist = {record[0] for record in records}  # Предполагается, что user_id в первой колонке
+
+        # Закрываем курсор и соединение
+        cursor.close()
+        conn.close()
+
+        # Возвращаем множество с ID пользователей в черном списке
         return blacklist
-    except FileNotFoundError:
-        return set()  # Если файл не найден, возвращаем пустой список
-    except ValueError:
-        return set()  # Если лист не найден, возвращаем пустой список
 
-
-# Глобальная переменная для хранения черного списка
-blacklist = load_blacklist()
-
-
-# Проверка пользователя на наличие в черном списке
-def is_user_blacklisted(user_id):
-    return user_id in blacklist
+    except (psycopg2.DatabaseError, Exception) as e:
+        # Логируем ошибку при возникновении проблемы с базой данных
+        logging.error(f"Ошибка при загрузке черного списка: {e}")
+        return set()  # Возвращаем пустое множество в случае ошибки
 
 
 async def send_notification(user_id, end_date_, username):
-    # await bot.send_message(user_id, 'ШЕДУЛЕР РАБОТАЕТ')
     user_link = f"https://t.me/{username}"
     booking_info = f"Ваша аренда заканчивается {end_date_}"
     booking_info_admin = f"У пользователя {user_link} аренда заканчивается {end_date_}"
     await bot.send_message(user_id, booking_info)
     await bot.send_message(ADMIN_GROUP_ID, booking_info_admin)
-    # for user_id in user_data:
-    #     end_date_ = user_data[user_id]['end_date']
-    #     print(
-    #         f"Отправлено уведомление пользователю {user_id}: Ваша аренда заканчивается {end_date_.strftime('%d-%m-%Y')}")
-    #     booking_info = f"Ваша аренда заканчивается {end_date_.strftime('%d-%m-%Y')}"
-    #     booking_info_admin = f"У пользователя {user_id} заканчивается аренда {end_date_.strftime('%d-%m-%Y')}"
-    #     await bot.send_message(user_id, booking_info)
-    #     await bot.send_message(ADMIN_GROUP_ID, booking_info_admin)
 
 
+# Асинхронная функция для планирования задач
 async def shedul():
-    print("XXX")
-    # reminder_date = datetime(2024, 8, 18).date()
-    # reminder_time = time(16, 6)
-    # reminder_datetime = datetime.combine(reminder_date, reminder_time)
-    # reminder_datetime = end_date_ - timedelta(days=1)
-
     sched = AsyncIOScheduler()
-    # Загружаем данные с листа 'bookings'
-    df = pd.read_excel("bikes.xlsx", sheet_name="booking")
-    # print("SHEDUL_USER_DATA", user_data)
-    for index, row in df.iterrows():
-        end_date_ = row['end_date']
-        user_id = row['user_id']
-        username = row['username']
-        end_date_str = datetime.strptime(end_date_, '%d-%m-%Y').date()
-        # print('SHEDUL:', index, row)
-        reminder_datetime = end_date_str - timedelta(days=1)
-        # reminder_date = datetime(2024, 8, 16).date()
-        # reminder_time = time(9, 36)
-        # reminder_datetime = datetime.combine(reminder_date, reminder_time)
+    conn = None  # Инициализация переменной conn
 
-        sched.add_job(
-            send_notification,
-            trigger='date',
-            run_date=reminder_datetime,
-            args=[user_id, end_date_, username]
-        )
-    sched.start()
+    try:
+        # Получаем соединение с базой данных
+        conn = await asyncpg.connect(DATABASE_URL)
+
+        # Выполняем запрос для получения данных бронирования
+        query = "SELECT end_date, user_id, username FROM bookings;"
+        rows = await conn.fetch(query)
+
+        # Обрабатываем каждую строку результата
+        for row in rows:
+            end_date_ = row['end_date']
+            user_id = row['user_id']
+            username = row['username']
+
+            # Преобразуем дату окончания в нужный формат
+            if isinstance(end_date_, str):
+                end_date_ = datetime.strptime(end_date_, '%d-%m-%Y').date()
+
+            reminder_datetime = end_date_ - timedelta(days=1)
+
+            # Добавляем задачу в планировщик
+            sched.add_job(
+                send_notification,
+                trigger='date',
+                run_date=reminder_datetime,
+                args=[user_id, end_date_, username]
+            )
+
+        # Запускаем планировщик
+        sched.start()
+
+    except Exception as e:
+        logging.error(f"Ошибка при планировании задач: {e}")
+
+    finally:
+        # Закрываем соединение с базой данных
+        await conn.close()
 
 
 def get_user_ids_from_db():
@@ -285,8 +349,9 @@ class FeedbackStates(StatesGroup):
 @dp.callback_query(F.data == 'отзывы')
 async def feedback(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
+    blacklist = load_blacklist()
     # Проверка черного списка
-    if is_user_blacklisted(user_id):
+    if user_id in blacklist:
         await callback_query.message.answer("Вам запрещен доступ к этому боту.")
         return
     photo = FSInputFile("Phangan.jpeg")
@@ -396,39 +461,25 @@ class BookingInformationCallBack(CallbackData, prefix="booking_information"):
 
 # Функция для получения байка по модели и странице
 async def get_bike(model: str, page: int):
-    # bike_data = load_bike_data()  # Загружаем байки один раз
     bike_collections = {
         "pcx": honda_pcx_bikes,
-        "click": honda_click_bikes}
+        "click": honda_click_bikes,
+        "adv": honda_adv_bikes,
+        "forza": honda_forza_bikes,
+        "xmax": yamaha_xmax_bikes,
+        "scoopy": honda_scoopy_bikes,
+        "zoomer": honda_zoomer_bikes,
+        "fino": yamaha_fino_bikes,
+    }
     bikes = bike_collections.get(model)
     if bikes and 0 <= page < len(bikes):
         return bikes[page]
-
-
-# # Фунция получения байка по модели и странице
-# def get_bike(model: str, page: int):
-#     bike_collections = {
-#         "pcx": honda_pcx_bikes,
-#         # "click": honda_click_bikes,
-#         # "adv": honda_adv_bikes,
-#         # "forza": honda_forza_bikes,
-#         # "xmax": yamaha_xmax_bikes,
-#         # "scoopy": honda_scoopy_bikes,
-#         # "zoomer": honda_zoomer_bikes,
-#         # "fino": yamaha_fino_bikes,
-#     }
-#
-#     bikes = bike_collections.get(model)
-#     print(bikes, 'XXX')
-#     if bikes and 0 <= page < len(bikes):
-#         return bikes[page]
 
 
 # Клавиатура для управления байком и навигацией по страницам
 def bike_keyboard(model: str, page: int):
     conn = get_db_connection()
     cursor = None
-    print(model)
     try:
         cursor = conn.cursor()  # Создание курсора
 
@@ -440,9 +491,7 @@ def bike_keyboard(model: str, page: int):
         """
         cursor.execute(query, (model,))  # Выполнение запроса
         result = cursor.fetchone()  # Получение одной строки результата
-        print(result)
         total_bikes = result[0] if result else 0
-        print(total_bikes, "TOTAL BIKES")
         total_pages = total_bikes  # Расчет общего количества страниц, если 10 байков на страницу
 
         # Инициализация клавиатуры
@@ -463,7 +512,7 @@ def bike_keyboard(model: str, page: int):
         keyboard.add(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
 
         if page < total_pages - 1:
-            keyboard.add(InlineKeyboardButton(text="➡️", callback_data=f"next_{model}_{page + 1}"))
+            keyboard.add(InlineKeyboardButton(text="➡️", callback_data=f"next_{model}_{page}"))
 
         # Возврат клавиатуры с кнопками
         return keyboard.adjust(2, 1, 3).as_markup()
@@ -476,44 +525,14 @@ def bike_keyboard(model: str, page: int):
         conn.close()  # Закрытие соединения
 
 
-# # Клавиатура байка
-# def bike_keyboard(model: str, page: int):
-#     bike_collections = {
-#         "pcx": honda_pcx_bikes,
-#         # "click": honda_click_bikes,
-#         # "adv": honda_adv_bikes,
-#         # "forza": honda_forza_bikes,
-#         # "xmax": yamaha_xmax_bikes,
-#         # "scoopy": honda_scoopy_bikes,
-#         # "zoomer": honda_zoomer_bikes,
-#         # "fino": yamaha_fino_bikes,
-#     }
-#     bikes = bike_collections.get(model)
-#     total_pages = len(bikes) if bikes else 0
-#     keyboard = InlineKeyboardBuilder()
-#     keyboard.add(
-#         InlineKeyboardButton(text="🔍 Выбрать даты", callback_data=StartCalendarCallBack(model=model, page=page).pack()))
-#     keyboard.add(InlineKeyboardButton(text="🛵 Байки", callback_data="байки"))
-#     keyboard.add(InlineKeyboardButton(text="🏠 На главную", callback_data="главная"))
-#     if page > 0:
-#         keyboard.add(InlineKeyboardButton(text="⬅️", callback_data=f"prev_{model}_{page}"))
-#
-#     keyboard.add(
-#         InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
-#
-#     if bikes and page < total_pages - 1:
-#         keyboard.add(InlineKeyboardButton(text="➡️", callback_data=f"next_{model}_{page}"))
-#
-#     return keyboard.adjust(2, 1, 3).as_markup()
-
-
 # Обработчик команды /start
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     user_id = message.from_user.id
+    blacklist = load_blacklist()
 
     # Проверка черного списка
-    if is_user_blacklisted(user_id):
+    if user_id in blacklist:
         await message.answer("Вам запрещен доступ к этому боту.")
         return
     photo = FSInputFile("Phangan.jpeg")
@@ -527,8 +546,9 @@ async def send_welcome(message: types.Message):
 @dp.callback_query(F.data == 'байки')
 async def bike_choose(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
+    blacklist = load_blacklist()
     # Проверка черного списка
-    if is_user_blacklisted(user_id):
+    if user_id in blacklist:
         await callback_query.message.answer("Вам запрещен доступ к этому боту.")
         return
     photo = FSInputFile("Phangan.jpeg")
@@ -568,7 +588,6 @@ def get_total_bikes(model: str) -> int:
         cursor.execute(query, (model,))  # Выполнение запроса
         result = cursor.fetchone()  # Получение одной строки результата
         total_bikes = result[0] if result else 0  # Извлечение значения из результата
-        print(total_bikes, "TOTAL BIKES")
         return total_bikes
     except Exception as e:
         print(f"Ошибка при выполнении запроса: {e}")
@@ -707,7 +726,6 @@ async def show_start_calendar(callback_query: types.CallbackQuery, callback_data
     page = callback_data.page
     now = datetime.now()
     bike = await get_bike(model, page)  # Предполагается, что get_bike теперь асинхронная
-    booked_dates = bike["booked_dates"]
 
     # Используем await для вызова асинхронной функции create_calendar_keyboard
     calendar_keyboard = await create_calendar_keyboard(
@@ -732,7 +750,6 @@ async def show_end_calendar(callback_query: types.CallbackQuery, callback_data: 
     page = callback_data.page
     now = datetime.now()
     bike = await get_bike(model, page)  # Предполагается, что get_bike теперь асинхронная
-    booked_dates = bike["booked_dates"]
 
     # Используем await для вызова асинхронной функции create_calendar_keyboard
     calendar_keyboard = await create_calendar_keyboard(
@@ -766,10 +783,6 @@ async def is_date_range_available(start_date: date, end_date: date, bike_name: s
     """
     pool = await create_pool()
 
-    # Отладочные сообщения
-    print(f"Проверяем доступность: start_date={start_date}, end_date={end_date}, bike_name={bike_name}")
-    print(f"Типы данных: start_date={type(start_date)}, end_date={type(end_date)}, bike_name={type(bike_name)}")
-
     # Запрос к базе данных для получения забронированных интервалов для данного байка
     query = """
     SELECT start_date, end_date
@@ -779,7 +792,6 @@ async def is_date_range_available(start_date: date, end_date: date, bike_name: s
 
     async with pool.acquire() as connection:
         records = await connection.fetch(query, bike_name)
-        print(f"Полученные записи: {records}")
 
     # Проверяем, пересекается ли интервал с существующими бронированиями
     for record in records:
@@ -949,7 +961,6 @@ async def next_month(callback_query: types.CallbackQuery, callback_data: NexMont
     # Используем await, если get_bike асинхронная функция
     bike = await get_bike(model, page)  # Добавьте await, если get_bike является асинхронной функцией
 
-    booked_dates = bike["booked_dates"]
     current_date = datetime(int(year), int(month), day=1)
     next_date = current_date + timedelta(days=31)
     next_date = next_date.replace(day=1)
@@ -1102,15 +1113,12 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
     bike_name = bike['name']
     user_data[user_id]['bike_name'] = bike_name
     username = callback_query.from_user.username
-    print("1337X", booked_dates)
 
     if user_id in user_data and "start_date" in user_data[user_id] and "end_date" in user_data[user_id]:
         if user_id not in booked_dates:
             booked_dates[user_id] = []
         booke = (start_date.strftime('%d-%m-%Y'), selected_date.strftime('%d-%m-%Y'))
         booked_dates[user_id].append(booke)
-        print("USER_DATA", user_data)
-        print("BOOKED_DATES", booked_dates)
         start_date = user_data[user_id]["start_date"]
         end_date = user_data[user_id]["end_date"]
 
@@ -1132,7 +1140,6 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
         await callback_query.message.edit_text(
             text="Ваше бронирование подтверждено!\n\nС вами свяжутся Админы в ближайшее время!",
             reply_markup=booking_information(model, page)
-            # Если booking_information асинхронная функция, добавьте await
         )
     else:
         await callback_query.message.answer("Произошла ошибка при бронировании. Попробуйте снова.")
@@ -1177,7 +1184,6 @@ async def my_bookings(callback_query: types.CallbackQuery):
 # Обработчик кнопки "Условия аренды"
 @dp.callback_query(F.data == "условия")
 async def rent_terms(callback_query: types.CallbackQuery):
-    photo = FSInputFile("Phangan.jpeg")
     await callback_query.message.answer(
 
         text="1️⃣ Документы: При аренде байка необходимо предоставить оригинал загранпаспорта или другого удостоверяющего личность документа."
@@ -1210,22 +1216,9 @@ async def contacts(callback_query: types.CallbackQuery):
     await callback_query.answer()
 
 
-# async def test_connection():
-#     conn = await asyncpg.connect(
-#         user='postgres',
-#         password='YZFaxXjLdSFHFfZTvSdlQOMweozxAyrs',
-#         database='postgresql://postgres:YZFaxXjLdSFHFfZTvSdlQOMweozxAyrs@meticulous-empathy.railway.internal:5432/railway',
-#         host='localhost',
-#         port=5432
-#     )
-#
-#
-# asyncio.run(test_connection())
-
-
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    # await shedul()
+    await shedul()
     await dp.start_polling(bot, skip_updates=True)
 
 
