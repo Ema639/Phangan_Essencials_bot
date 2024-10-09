@@ -256,7 +256,7 @@ async def shedul():
             if isinstance(end_date_, str):
                 end_date_ = datetime.strptime(end_date_, '%d-%m-%Y').date()
 
-            reminder_time = time(22, 41)
+            reminder_time = time(8, 44)
 
             reminder_datetime = datetime.combine(datetime.now().date(), reminder_time)
 
