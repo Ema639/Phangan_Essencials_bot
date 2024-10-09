@@ -256,7 +256,7 @@ async def shedul():
             if isinstance(end_date_, str):
                 end_date_ = datetime.strptime(end_date_, '%d-%m-%Y').date()
 
-            reminder_datetime = datetime.combine(end_date_ - timedelta(days=1), datetime.min) + timedelta(hours=18, minutes=24)
+            reminder_datetime = datetime.combine(end_date_ - timedelta(days=1), time(18, 25))
 
             # Добавляем задачу в планировщик
             sched.add_job(
