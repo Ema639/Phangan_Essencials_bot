@@ -19,6 +19,7 @@ functions==0.7.0
 idna==3.7
 iniconfig==2.0.0
 Jinja2==3.1.4
+lxml==5.2.1
 magic-filter==1.0.12
 MarkupSafe==2.1.5
 multidict==6.0.5
