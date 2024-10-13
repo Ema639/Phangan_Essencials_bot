@@ -256,9 +256,7 @@ async def shedul():
             if isinstance(end_date_, str):
                 end_date_ = datetime.strptime(end_date_, '%d-%m-%Y').date()
 
-            reminder_time = time(8, 50)
-
-            reminder_datetime = datetime.combine(datetime.now().date(), reminder_time)
+            reminder_datetime = end_date_ - timedelta(days=1)
 
             # Добавляем задачу в планировщик
             sched.add_job(
@@ -1116,6 +1114,8 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
     user_data[user_id]['bike_name'] = bike_name
     username = callback_query.from_user.username
 
+    sched = AsyncIOScheduler()
+
     if user_id in user_data and "start_date" in user_data[user_id] and "end_date" in user_data[user_id]:
         if user_id not in booked_dates:
             booked_dates[user_id] = []
@@ -1135,6 +1135,16 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
 
         # Сохраняем данные о бронировании с использованием await
         save_booking_data(user_id, bike['name'], start_date, end_date, username)  # Добавляем await
+        reminder_datetime = end_date - timedelta(days=1)
+        sched.add_job(
+            send_notification,
+            trigger='date',
+            run_date=reminder_datetime,
+            args=[user_id, end_date, username]
+        )
+
+        # Запускаем планировщик
+        sched.start()
 
         # Отправка сообщения админу
         await bot.send_message(ADMIN_GROUP_ID, booking_info)
