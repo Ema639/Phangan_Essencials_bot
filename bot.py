@@ -1125,9 +1125,6 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
         start_date = user_data[user_id]["start_date"]
         end_date = user_data[user_id]["end_date"]
 
-        # Запись в Excel файл
-        update_excel_file(bike_name, start_date, end_date)
-
         # Получение ссылки на профиль пользователя
         user_profile_link = f"https://t.me/{username}" if username else "Не задано"
 
@@ -1159,38 +1156,63 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
         )
     else:
         await callback_query.message.answer("Произошла ошибка при бронировании. Попробуйте снова.")
+        
 
-def update_excel_file(bike_name, start_date, end_date):
-    file_path = 'bikes.xlsx'
+@dp.message(Command("exel"))
+async def exel(message: types.Message):
+    # Подключаемся к базе данных
+    conn = await asyncpg.connect(DATABASE_URL)
 
-    try:
-        # Загружаем существующий файл
-        workbook = load_workbook(file_path)
-        sheet = workbook.active
+    # Получаем данные из таблицы 'bookings'
+    rows = await conn.fetch("SELECT bike_name, start_date, end_date FROM bookings")
 
-        # Находим строку с названием байка
-        bike_row_index = None
-        for index, row in enumerate(sheet.iter_rows(min_row=2, max_col=1, values_only=True), start=2):
-            if row[0] == bike_name:
-                bike_row_index = index
-                break
+    # Создаем словарь для хранения данных
+    data_dict = {}
 
-        if bike_row_index is None:
-            print(f"Байк '{bike_name}' не найден в файле.")
-            return
+    for row in rows:
+        bike_name = row['bike_name']
+        start_date = row['start_date']
+        end_date = row['end_date']
 
-        # Находим следующий свободный столбец в строке байка
-        next_free_col = sheet.max_column + 1  # Определяем следующий свободный столбец
+        # Форматируем дату в строку
+        date_range = f"{start_date}-{end_date}"
 
-        # Записываем интервал дат в следующую свободную ячейку
-        sheet.cell(row=bike_row_index, column=next_free_col,
-                   value=f"{start_date.strftime('%d-%m-%Y')} - {end_date.strftime('%d-%m-%Y')}")
+        # Добавляем данные в словарь
+        if bike_name not in data_dict:
+            data_dict[bike_name] = []
 
-        # Сохраняем изменения в файле
-        workbook.save(file_path)
+        data_dict[bike_name].append(date_range)
 
-    except Exception as e:
-        print(f"Ошибка при записи в Excel: {e}")
+    # Создаем список для хранения данных для DataFrame
+    data = []
+
+    for bike_name, date_ranges in data_dict.items():
+        # Создаем строку с bike_name и всеми интервалами дат
+        row = [bike_name] + date_ranges
+        data.append(row)
+
+    # Создаем DataFrame из списка данных
+    df = pd.DataFrame(data)
+
+    # Создаем буфер для хранения Excel файла
+    buffer = io.BytesIO()
+
+    # Пишем DataFrame в буфер с помощью pd.ExcelWriter
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Bookings')
+
+    # Перематываем указатель в начале буфера, чтобы файл прочитался с самого начала
+    buffer.seek(0)
+
+    # Создаем BufferedInputFile из BytesIO
+    document = BufferedInputFile(buffer.read(), filename='bookings.xlsx')
+
+    # Закрываем соединение с базой данных
+    await conn.close()
+
+    # Отправляем документ пользователю
+    await message.answer("Вот ваш Excel файл:")
+    await bot.send_document(chat_id=message.chat.id, document=document)
 
 
 # Обработчик кнопки "📋 Мои бронирования"
