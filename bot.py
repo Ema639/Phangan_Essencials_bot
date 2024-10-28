@@ -16,6 +16,7 @@ from config import TOKEN
 import asyncpg
 import psycopg2
 from openpyxl import load_workbook
+import pandas as pd
 
 
 logging.basicConfig(level=logging.INFO)
