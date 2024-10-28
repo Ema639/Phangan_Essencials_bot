@@ -17,6 +17,8 @@ import asyncpg
 import psycopg2
 from openpyxl import load_workbook
 import pandas as pd
+import io
+from aiogram.types import BufferedInputFile
 
 
 logging.basicConfig(level=logging.INFO)
