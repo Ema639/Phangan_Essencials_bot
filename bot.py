@@ -229,10 +229,10 @@ def load_blacklist():
         return set()  # Возвращаем пустое множество в случае ошибки
 
 
-async def send_notification(user_id, end_date_, username):
+async def send_notification(user_id, end_date_, username, bike_name):
     user_link = f"https://t.me/{username}"
-    booking_info = f"Ваша аренда заканчивается {end_date_}"
-    booking_info_admin = f"У пользователя {user_link} аренда заканчивается {end_date_}"
+    booking_info = f"Ваша аренда байка {bike_name} заканчивается {end_date_}"
+    booking_info_admin = f"У пользователя {user_link} аренда байка {bike_name} заканчивается {end_date_}"
     await bot.send_message(user_id, booking_info)
     await bot.send_message(ADMIN_GROUP_ID, booking_info_admin)
 
@@ -247,7 +247,7 @@ async def shedul():
         conn = await asyncpg.connect(DATABASE_URL)
 
         # Выполняем запрос для получения данных бронирования
-        query = "SELECT end_date, user_id, username FROM bookings;"
+        query = "SELECT end_date, user_id, username, bike_name FROM bookings;"
         rows = await conn.fetch(query)
 
         # Обрабатываем каждую строку результата
@@ -255,6 +255,7 @@ async def shedul():
             end_date_ = row['end_date']
             user_id = row['user_id']
             username = row['username']
+            bike_name = row['bike_name']
 
             # Преобразуем дату окончания в нужный формат
             if isinstance(end_date_, str):
@@ -267,7 +268,7 @@ async def shedul():
                 send_notification,
                 trigger='date',
                 run_date=reminder_datetime,
-                args=[user_id, end_date_, username]
+                args=[user_id, end_date_, username, bike_name]
             )
 
         # Запускаем планировщик
