@@ -1145,7 +1145,7 @@ async def confirm_booking(callback_query: types.CallbackQuery, callback_data: Co
             send_notification,
             trigger='date',
             run_date=reminder_datetime,
-            args=[user_id, end_date, username]
+            args=[user_id, end_date, username, bike_name]
         )
 
         # Запускаем планировщик
