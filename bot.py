@@ -1202,8 +1202,16 @@ async def exel(message: types.Message):
     buffer = io.BytesIO()
 
     # Пишем DataFrame в буфер с помощью pd.ExcelWriter
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Bookings')
+
+        # Получаем доступ к рабочему листу
+        worksheet = writer.sheets['Bookings']
+
+        # Устанавливаем ширину столбцов
+        worksheet.set_column('A:A', 28)  # Устанавливаем ширину для столбцов A до D
+        for col in range(1, len(df.columns)):  # Начинаем с 1 (B) до конца
+            worksheet.set_column(col, col, 20)
 
     # Перематываем указатель в начале буфера, чтобы файл прочитался с самого начала
     buffer.seek(0)
