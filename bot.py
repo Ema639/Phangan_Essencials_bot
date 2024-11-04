@@ -570,7 +570,7 @@ async def show_bike(callback_query: types.CallbackQuery):
     page = int(page)
     bike = await get_bike(model, page)
     photo = FSInputFile(bike["photo"])
-    caption = f"{bike['name']}:\n\n{bike['description']}"
+    caption = f"{bike['name']}\n\n{bike['description']}"
 
     await callback_query.message.answer_photo(
         photo=photo,
