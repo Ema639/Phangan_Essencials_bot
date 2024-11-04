@@ -570,12 +570,13 @@ async def show_bike(callback_query: types.CallbackQuery):
     page = int(page)
     bike = await get_bike(model, page)
     photo = FSInputFile(bike["photo"])
-    caption = f"{bike['name']}\n\n{bike['description']}"
+    caption = f"*{bike['name']}*\n\n*{bike['description']}*"
 
     await callback_query.message.answer_photo(
         photo=photo,
         caption=caption,
-        reply_markup=bike_keyboard(model, page)
+        reply_markup=bike_keyboard(model, page),
+        parse_mode='MarkdownV2'
     )
 
 
@@ -626,14 +627,14 @@ async def paginate_bikes(callback_query: types.CallbackQuery):
     if bike:
         # Загружаем фотографию байка
         photo = FSInputFile(bike["photo"])
-        caption = f"{bike['name']}\n\n{bike['description']}"
+        caption = f"*{bike['name']}*\n\n*{bike['description']}*"
 
         # Получаем клавиатуру с использованием await
         keyboard = bike_keyboard(model, next_page)  # Добавлено await для асинхронного вызова
 
         # Редактируем сообщение с новым байком и клавиатурой
         await callback_query.message.edit_media(
-            types.InputMediaPhoto(media=photo, caption=caption),
+            types.InputMediaPhoto(media=photo, caption=caption, parse_mode='MarkdownV2'),
             reply_markup=keyboard
         )
     else:
