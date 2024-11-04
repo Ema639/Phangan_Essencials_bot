@@ -626,7 +626,7 @@ async def paginate_bikes(callback_query: types.CallbackQuery):
     if bike:
         # Загружаем фотографию байка
         photo = FSInputFile(bike["photo"])
-        caption = f"{bike['name']}:\n\n{bike['description']}"
+        caption = f"{bike['name']}\n\n{bike['description']}"
 
         # Получаем клавиатуру с использованием await
         keyboard = bike_keyboard(model, next_page)  # Добавлено await для асинхронного вызова
