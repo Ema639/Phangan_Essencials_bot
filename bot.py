@@ -75,7 +75,7 @@ def load_bike_data():
 
     try:
         cursor = conn.cursor()
-        query = "SELECT name, description, photo, model FROM bikes"
+        query = "SELECT name, description, photo, model FROM bikes ORDER BY index ASC"
         cursor.execute(query)
         rows = cursor.fetchall()
 
