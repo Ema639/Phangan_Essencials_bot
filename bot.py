@@ -315,14 +315,14 @@ def start_keyboard(user_id):
 
 def bikes_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Honda PCX", callback_data="bikes_pcx_0"),
-         InlineKeyboardButton(text="Honda Click", callback_data="bikes_click_0")],
-        [InlineKeyboardButton(text="Honda ADV", callback_data="bikes_adv_0"),
-         InlineKeyboardButton(text="Honda Forza", callback_data="bikes_forza_0")],
-        [InlineKeyboardButton(text="Yamaha Xmax", callback_data="bikes_xmax_0"),
-         InlineKeyboardButton(text="Honda Scoopy", callback_data="bikes_scoopy_0")],
-        [InlineKeyboardButton(text="Honda Zoomer", callback_data="bikes_zoomer_0"),
-         InlineKeyboardButton(text="Yamaha Fino/Grand Filano", callback_data="bikes_fino_0")],
+        [InlineKeyboardButton(text="Honda PCX (7)", callback_data="bikes_pcx_0"),
+         InlineKeyboardButton(text="Honda Click (6)", callback_data="bikes_click_0")],
+        [InlineKeyboardButton(text="Honda ADV (1)", callback_data="bikes_adv_0"),
+         InlineKeyboardButton(text="Honda Forza (2)", callback_data="bikes_forza_0")],
+        [InlineKeyboardButton(text="Yamaha Xmax (1)", callback_data="bikes_xmax_0"),
+         InlineKeyboardButton(text="Honda Scoopy (4)", callback_data="bikes_scoopy_0")],
+        [InlineKeyboardButton(text="Honda Zoomer (2)", callback_data="bikes_zoomer_0"),
+         InlineKeyboardButton(text="Yamaha Fino/Grand Filano (2)", callback_data="bikes_fino_0")],
         [InlineKeyboardButton(text="🏠 На главную", callback_data="главная")]
     ])
     return keyboard
